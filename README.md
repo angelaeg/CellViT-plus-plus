@@ -10,10 +10,19 @@
 > [![Update](https://img.shields.io/badge/Update-PyPI-green?labelColor=Red&style=flat&logo=pypi&link=https://pypi.org/project/cellvit/)](https://pypi.org/project/cellvit/)
 >
 > If you just want to run inference, checkout the [PyPI package](https://pypi.org/project/cellvit/) and the corresponding [GitHub repo](https://github.com/TIO-IKIM/CellViT-Inference)
+
+> [!NOTE]
+> ### MSc thesis extension: context-aware TSN classification
+>
+> This fork extends CellViT++ with integrated MLP, GraphSAGE, and GATv2 classifiers for Tumor–Stroma–Normal cellular-instance classification. The graph-based backends dynamically construct spatial cell graphs and support five-fold soft-voting inference. CellViT++ segmentation and feature extraction remain unchanged.
+>
+> See [Context-aware TSN cell classification](docs/graph_classifier_integration.md) for installation requirements, checkpoint organization, inference examples, and limitations.
+
 ___
 <p align="center">
   <img src="./docs/figures/banner.png"/>
 </p>
+
 
 ___
 

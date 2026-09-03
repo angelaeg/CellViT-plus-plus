@@ -42,6 +42,7 @@ class CellViTInferenceMemory(CellViTInference):
         gpu: int,
         outdir: Union[Path, str],
         classifier_path: Union[Path, str] = None,
+        classifier: str = None,
         binary: bool = False,
         batch_size: int = 8,
         patch_size: int = 1024,
@@ -54,6 +55,7 @@ class CellViTInferenceMemory(CellViTInference):
         super(CellViTInferenceMemory, self).__init__(
             model_path=model_path,
             classifier_path=classifier_path,
+            classifier=classifier,
             binary=binary,
             gpu=gpu,
             batch_size=batch_size,
@@ -65,6 +67,7 @@ class CellViTInferenceMemory(CellViTInference):
             enforce_mixed_precision=enforce_mixed_precision,
         )
         self.outdir = Path(outdir)
+
 
     def process_wsi(
         self,
@@ -126,18 +129,66 @@ class CellViTInferenceMemory(CellViTInference):
         self.outdir.mkdir(exist_ok=True, parents=True)
 
         # global postprocessor
+        # --------------------------------------------------------------
+        # Classifier handling for Ray
+        #
+        # Legacy linear classifiers can keep the original CellViT++
+        # behaviour.
+        #
+        # Graph classifiers are NOT placed inside the object sent to Ray.
+        # Each Ray actor loads the GNN locally from its checkpoint path.
+        # --------------------------------------------------------------
+
+        is_graph_classifier = (
+            self.classifier is not None
+            and getattr(
+                self.classifier,
+                "is_graph_classifier",
+                False,
+            )
+        )
+
+        is_mlp_ensemble_classifier = (
+            self.classifier is not None
+            and getattr(
+                self.classifier,
+                "is_mlp_ensemble_classifier",
+                False,
+            )
+        )
+
+        # Integrated classifiers are reconstructed locally inside
+        # each Ray worker from their checkpoint paths.
+        is_integrated_classifier = (
+            is_graph_classifier
+            or is_mlp_ensemble_classifier
+        )
+
+        postprocessor_classifier = (
+            None
+            if is_integrated_classifier
+            else self.classifier
+        )
+
         postprocessor = DetectionCellPostProcessorCupy(
             wsi=wsi,
             nr_types=self.run_conf["data"]["num_nuclei_classes"],
             resolution=resolution,
-            classifier=self.classifier,
+            classifier=postprocessor_classifier,
             binary=self.binary,
         )
 
         # create ray actors for batch-wise postprocessing
         batch_pooling_actors = [
-            BatchPoolingActor.remote(postprocessor, self.run_conf)
-            for i in range(self.ray_actors)
+            BatchPoolingActor.remote(
+                postprocessor,
+                self.run_conf,
+                self.graph_classifier_path,
+                self.graph_classifier_paths,
+                self.mlp_classifier_path,
+                self.mlp_classifier_paths,
+            )
+            for _ in range(self.ray_actors)
         ]
 
         call_ids = []

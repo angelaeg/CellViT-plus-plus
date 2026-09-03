@@ -33,20 +33,8 @@ class DetectionCellPostProcessorCupy:
         binary: bool = False,
         gt: bool = False,
     ) -> None:
-        """DetectionCellPostProcessor for postprocessing prediction maps and get detected cells, based on cupy
+        """DetectionCellPostProcessor for postprocessing prediction maps."""
 
-        Args:
-            wsi (Union[WSI, WSIMetadata]): WSI object for getting metadata
-            nr_types (int):  Number of cell types, including background (background = 0). Defaults to None.
-            resolution (float, optional): Resolution of the network/wsi to work on. Defaults to 0.25.
-            classifier (nn.Module, optional): Add a token classifier to change the cell types based on a custom cell classifier. Defaults to None.
-            binary (bool): If just a binary detection/segmentation should be performed. Defaults to False.
-            gt (bool, optional): If this is gt data (used that we do not suppress tiny cells that may be noise in a prediction map).
-                Defaults to False.
-
-        Raises:
-            NotImplementedError: Unknown
-        """
         self.wsi = wsi
         self.nr_types = nr_types
         self.resolution = resolution
@@ -58,13 +46,15 @@ class DetectionCellPostProcessorCupy:
             self.object_size = 10
             self.k_size = 21
         elif resolution == 0.5:
-            self.object_size = 3  # 3 or 40, we used 5
-            self.k_size = 11  # 11 or 41, we used 13
+            self.object_size = 3
+            self.k_size = 11
         else:
             raise NotImplementedError(
-                "Unknown Resolution, select either 0.25 (preferred) or (0.5)"
+                "Unknown Resolution, select either 0.25 "
+                "(preferred) or 0.5"
             )
-        if gt:  # to not supress something in gt!
+
+        if gt:
             self.object_size = 100
             self.k_size = 21
 
@@ -580,112 +570,455 @@ class DetectionCellPostProcessorCupy:
         return int(inst_type), float(type_prob)
 
 
-@ray.remote(num_cpus=8, num_gpus=0.1)
+@ray.remote(num_cpus=1, num_gpus=0.1)
 class BatchPoolingActor:
     def __init__(
         self,
         detection_cell_postprocessor: DetectionCellPostProcessorCupy,
         run_conf: dict,
+        graph_classifier_path: str = None,
+        graph_classifier_paths: list = None,
+        mlp_classifier_path: str = None,
+        mlp_classifier_paths: list = None,
     ) -> None:
-        """Ray Actor for coordinating the postprocessing of **one** batch
-
-        The postprocessing is done in a separate process to avoid blocking the main process.
-        The calculation is done with the help of the `DetectionCellPostProcessorCupy` class.
-        This actor acts as a coordinator for the postprocessing of one batch and a wrapper for the `DetectionCellPostProcessorCupy` class.
-
-        Args:
-            detection_cell_postprocessor (DetectionCellPostProcessorCupy): Instance of the `DetectionCellPostProcessorCupy` class
-            run_conf (dict): Run configuration
         """
-        assert "dataset_config" in run_conf, "dataset_config must be in run_conf"
-        assert (
-            "nuclei_types" in run_conf["dataset_config"]
-        ), "nuclei_types must be in run_conf['dataset_config']"
-        assert "model" in run_conf, "model must be in run_conf"
-        assert (
-            "token_patch_size" in run_conf["model"]
-        ), "token_patch_size must be in run_conf['model']"
+        Ray Actor for coordinating the postprocessing of one batch.
 
-        self.detection_cell_postprocessor = detection_cell_postprocessor
+        For graph-based classifiers, the checkpoint is loaded locally inside
+        the Ray worker instead of serializing a GraphCellClassifier instance
+        from the main process.
+        """
+
+        assert "dataset_config" in run_conf, (
+            "dataset_config must be in run_conf"
+        )
+
+        assert "nuclei_types" in run_conf["dataset_config"], (
+            "nuclei_types must be in run_conf['dataset_config']"
+        )
+
+        assert "model" in run_conf, (
+            "model must be in run_conf"
+        )
+
+        assert "token_patch_size" in run_conf["model"], (
+            "token_patch_size must be in run_conf['model']"
+        )
+
+        self.detection_cell_postprocessor = (
+            detection_cell_postprocessor
+        )
         self.run_conf = run_conf
+
+        # ------------------------------------------------------
+        # Validate classifier configuration
+        # ------------------------------------------------------
+
+        classifier_sources = [
+            graph_classifier_path is not None,
+            graph_classifier_paths is not None,
+            mlp_classifier_path is not None,
+            mlp_classifier_paths is not None,
+        ]
+
+        if sum(classifier_sources) > 1:
+            raise ValueError(
+                "Provide only one classifier source among "
+                "graph_classifier_path, graph_classifier_paths, "
+                "mlp_classifier_path or mlp_classifier_paths."
+            )
+
+        # ------------------------------------------------------
+        # Graph classifier - single checkpoint
+        # ------------------------------------------------------
+
+        if graph_classifier_path is not None:
+
+            from cell_graph.inference.graph_classifier import (
+                GraphCellClassifier,
+            )
+
+            self.detection_cell_postprocessor.classifier = (
+                GraphCellClassifier(
+                    checkpoint_path=graph_classifier_path,
+                    device="cpu",
+                )
+            )
+
+        # ------------------------------------------------------
+        # Graph classifier - ensemble
+        # ------------------------------------------------------
+
+        elif graph_classifier_paths is not None:
+
+            from cell_graph.inference.graph_classifier import (
+                GraphCellClassifier,
+            )
+
+            self.detection_cell_postprocessor.classifier = (
+                GraphCellClassifier(
+                    checkpoint_paths=graph_classifier_paths,
+                    device="cpu",
+                )
+            )
+
+        # ------------------------------------------------------
+        # MLP TSN classifier - single checkpoint
+        # ------------------------------------------------------
+
+        elif mlp_classifier_path is not None:
+
+            from cell_graph.inference.mlp_ensemble_classifier import (
+                MLPEnsembleClassifier,
+            )
+
+            self.detection_cell_postprocessor.classifier = (
+                MLPEnsembleClassifier(
+                    checkpoint_path=mlp_classifier_path,
+                    device="cpu",
+                )
+            )
+
+        # ------------------------------------------------------
+        # MLP TSN classifier - ensemble
+        # ------------------------------------------------------
+
+        elif mlp_classifier_paths is not None:
+
+            from cell_graph.inference.mlp_ensemble_classifier import (
+                MLPEnsembleClassifier,
+            )
+
+            self.detection_cell_postprocessor.classifier = (
+                MLPEnsembleClassifier(
+                    checkpoint_paths=mlp_classifier_paths,
+                    device="cpu",
+                )
+            )
 
     def convert_batch_to_graph_nodes(
         self, predictions: dict, metadata: List[dict]
     ) -> Tuple[List[dict], List[dict], List[torch.Tensor], List[torch.Tensor]]:
-        """Postprocess a batch of predictions and convert it to graph nodes
-
-        Returns the complete graph nodes (cell dictionary), the detection nodes (cell detection dictionary), the cell tokens and the cell positions
-
-
-        Args:
-            predictions (dict): predictions_ (dict): Network predictions with tokens. Keys (required):
-                * nuclei_binary_map: Binary Nucleus Predictions. Shape: (B, H, W, 2)
-                * nuclei_type_map: Type prediction of nuclei. Shape: (B, H, W, self.num_nuclei_classes,)
-                * hv_map: Horizontal-Vertical nuclei mapping. Shape: (B, H, W, 2)
-            metadata List[(dict)]: List of metadata dictionaries for each patch.
-                Each dictionary needs to contain the following keys:
-                * row: Row index of the patch
-                * col: Column index of the patch
-                Other keys are optional
-
-        Returns:
-            Tuple[List[dict], List[dict], List[torch.Tensor], List[torch.Tensor]]:
-                * List[dict]: Complete graph nodes (cell dictionary)
-                * List[dict]: Detection nodes (cell detection dictionary)
-                * List[torch.Tensor]: Cell tokens
-                * List[torch.Tensor]: Cell positions (centroid)
         """
-        _, cell_dict_batch = self.detection_cell_postprocessor.post_process_batch(
-            predictions
+        Postprocess a batch of CellViT predictions and convert detected
+        nuclei into graph nodes.
+
+        Classification behaviour
+        ------------------------
+        - Legacy CellViT++ classifiers:
+            preserve the original independent-cell classification behaviour.
+
+        - Graph classifiers:
+            classify each patch independently. For every patch, the detected
+            nuclei constitute the graph nodes, their CellViT embeddings are
+            used as node features, and their centroids define the spatial
+            graph topology.
+
+        This patch-wise formulation allows checkpoints trained with a larger
+        spatial context to be applied to arbitrary CellViT inference patches,
+        while keeping graph construction local to the available patch.
+        """
+
+        _, cell_dict_batch = (
+            self.detection_cell_postprocessor.post_process_batch(
+                predictions
+            )
         )
-        tokens = predictions["tokens"].detach().to("cpu")
+
+        tokens = (
+            predictions["tokens"]
+            .detach()
+            .to("cpu")
+        )
 
         batch_complete = []
         batch_detection = []
         batch_cell_tokens = []
         batch_cell_positions = []
 
-        for idx, (patch_cell_dict, patch_metadata) in enumerate(
-            zip(cell_dict_batch, metadata)
+        classifier = (
+            self.detection_cell_postprocessor.classifier
+        )
+
+        is_graph_classifier = (
+            classifier is not None
+            and getattr(
+                classifier,
+                "is_graph_classifier",
+                False,
+            )
+        )
+
+        is_mlp_ensemble_classifier = (
+            classifier is not None
+            and getattr(
+                classifier,
+                "is_mlp_ensemble_classifier",
+                False,
+            )
+        )
+
+        # ----------------------------------------------------------
+        # Process every CellViT patch independently
+        # ----------------------------------------------------------
+
+        for idx, (
+            patch_cell_dict,
+            patch_metadata,
+        ) in enumerate(
+            zip(
+                cell_dict_batch,
+                metadata,
+            )
         ):
+
             (
                 patch_complete,
                 patch_detection,
                 patch_cell_tokens,
                 patch_cell_positions,
             ) = self.convert_patch_to_graph_nodes(
-                patch_cell_dict, patch_metadata, tokens[idx]
+                patch_cell_dict,
+                patch_metadata,
+                tokens[idx],
             )
-            batch_complete = batch_complete + patch_complete
-            batch_detection = batch_detection + patch_detection
-            batch_cell_tokens = batch_cell_tokens + patch_cell_tokens
-            batch_cell_positions = batch_cell_positions + patch_cell_positions
 
-        if self.detection_cell_postprocessor.classifier is not None:
-            batch_cell_tokens_pt = torch.stack(batch_cell_tokens)
-            updated_preds = self.detection_cell_postprocessor.classifier(
-                batch_cell_tokens_pt
+            # ------------------------------------------------------
+            # Graph-based classification
+            #
+            # IMPORTANT:
+            # One inference patch = one graph.
+            #
+            # Therefore cells from different patches in the same
+            # CellViT batch are never connected.
+            # ------------------------------------------------------
+
+            if (
+                is_graph_classifier
+                and len(patch_cell_tokens) > 0
+            ):
+
+                patch_tokens_pt = torch.stack(
+                    patch_cell_tokens
+                )
+
+                patch_positions_pt = torch.stack(
+                    patch_cell_positions
+                )
+
+                graph_output = classifier.predict(
+                    cell_tokens=patch_tokens_pt,
+                    cell_positions=patch_positions_pt,
+                )
+
+                updated_classes = (
+                    graph_output["predictions"]
+                    .detach()
+                    .cpu()
+                )
+
+                updated_class_probs = (
+                    graph_output[
+                        "prediction_probabilities"
+                    ]
+                    .detach()
+                    .cpu()
+                )
+
+                updated_probabilities = (
+                    graph_output["probabilities"]
+                    .detach()
+                    .cpu()
+                )
+
+                if (
+                    len(updated_classes)
+                    != len(patch_complete)
+                ):
+                    raise RuntimeError(
+                        "Graph classifier returned a different "
+                        "number of predictions than detected cells: "
+                        f"{len(updated_classes)} predictions for "
+                        f"{len(patch_complete)} cells."
+                    )
+
+                # Update complete cell dictionaries.
+                for cell, pred_class, pred_prob, class_probs in zip(
+                    patch_complete,
+                    updated_classes,
+                    updated_class_probs,
+                    updated_probabilities,
+                ):
+                    cell["type"] = int(
+                        pred_class.item()
+                    )
+
+                    cell["type_prob"] = float(
+                        pred_prob.item()
+                    )
+
+                    # Soft-voting TSN probabilities in type_map order:
+                    # [Tumor, Stroma, Normal].
+                    cell["class_probabilities"] = (
+                        class_probs.tolist()
+                    )
+
+                # Update lightweight detection dictionaries.
+                for cell, pred_class in zip(
+                    patch_detection,
+                    updated_classes,
+                ):
+                    cell["type"] = int(
+                        pred_class.item()
+                    )
+
+            # ------------------------------------------------------
+            # Accumulate patch results
+            # ------------------------------------------------------
+
+            batch_complete.extend(
+                patch_complete
             )
-            updated_preds = F.softmax(updated_preds, dim=1)
-            updated_classes = torch.argmax(updated_preds, dim=1)
-            updated_class_preds = updated_preds[
-                torch.arange(updated_classes.shape[0]), updated_classes
-            ]
 
-            for f, z in zip(batch_complete, updated_classes):
-                f["type"] = int(z)
-            for f, z in zip(batch_complete, updated_class_preds):
-                f["type_prob"] = int(z)
-            for f, z in zip(batch_detection, updated_classes):
-                f["type"] = int(z)
+            batch_detection.extend(
+                patch_detection
+            )
+
+            batch_cell_tokens.extend(
+                patch_cell_tokens
+            )
+
+            batch_cell_positions.extend(
+                patch_cell_positions
+            )
+
+        # ----------------------------------------------------------
+        # Legacy independent-cell classifier
+        #
+        # Preserve the original CellViT++ behaviour:
+        # all cell embeddings in the batch are classified together.
+        # ----------------------------------------------------------
+
+        if (
+            classifier is not None
+            and not is_graph_classifier
+            and len(batch_cell_tokens) > 0
+        ):
+
+            batch_cell_tokens_pt = torch.stack(
+                batch_cell_tokens
+            )
+
+            # --------------------------------------------------
+            # Integrated MLP TSN ensemble
+            # --------------------------------------------------
+
+            if is_mlp_ensemble_classifier:
+
+                mlp_output = classifier.predict(
+                    cell_tokens=batch_cell_tokens_pt
+                )
+
+                updated_classes = (
+                    mlp_output["predictions"]
+                    .detach()
+                    .cpu()
+                )
+
+                updated_class_preds = (
+                    mlp_output[
+                        "prediction_probabilities"
+                    ]
+                    .detach()
+                    .cpu()
+                )
+
+                updated_probabilities = (
+                    mlp_output["probabilities"]
+                    .detach()
+                    .cpu()
+                )
+
+            # --------------------------------------------------
+            # Legacy CellViT++ classifier
+            # --------------------------------------------------
+
+            else:
+
+                updated_preds = classifier(
+                    batch_cell_tokens_pt
+                )
+
+                updated_preds = F.softmax(
+                    updated_preds,
+                    dim=1,
+                )
+
+                updated_classes = torch.argmax(
+                    updated_preds,
+                    dim=1,
+                )
+
+                updated_class_preds = updated_preds[
+                    torch.arange(
+                        updated_classes.shape[0]
+                    ),
+                    updated_classes,
+                ]
+
+            for cell, pred_class in zip(
+                batch_complete,
+                updated_classes,
+            ):
+                cell["type"] = int(
+                    pred_class.item()
+                )
+
+            for cell, pred_prob in zip(
+                batch_complete,
+                updated_class_preds,
+            ):
+                cell["type_prob"] = float(
+                    pred_prob.item()
+                )
+
+            if is_mlp_ensemble_classifier:
+                for cell, class_probs in zip(
+                    batch_complete,
+                    updated_probabilities,
+                ):
+                    # Soft-voting TSN probabilities in type_map order:
+                    # [Tumor, Stroma, Normal].
+                    cell["class_probabilities"] = (
+                        class_probs.tolist()
+                    )
+
+            for cell, pred_class in zip(
+                batch_detection,
+                updated_classes,
+            ):
+                cell["type"] = int(
+                    pred_class.item()
+                )
+
+        # ----------------------------------------------------------
+        # Binary inference
+        # ----------------------------------------------------------
+
         if self.detection_cell_postprocessor.binary:
-            for f in batch_complete:
-                f["type"] = 1
-            for f in batch_detection:
-                f["type"] = 1
-            pass
 
-        return batch_complete, batch_detection, batch_cell_tokens, batch_cell_positions
+            for cell in batch_complete:
+                cell["type"] = 1
+
+            for cell in batch_detection:
+                cell["type"] = 1
+
+        return (
+            batch_complete,
+            batch_detection,
+            batch_cell_tokens,
+            batch_cell_positions,
+        )
 
     def convert_patch_to_graph_nodes(
         self, patch_cell_dict: dict, patch_metadata: dict, patch_tokens: torch.Tensor

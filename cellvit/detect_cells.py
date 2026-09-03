@@ -27,6 +27,7 @@ def main():
     celldetector = CellViTInferenceMemory(
         model_path=args["model"],
         classifier_path=args["classifier_path"],
+        classifier=args["classifier"],
         binary=args["binary"],
         gpu=args["gpu"],
         outdir=args["outdir"],
@@ -34,6 +35,8 @@ def main():
         graph=args["graph"],
         compression=args["compression"],
         batch_size=args["batch_size"],
+        patch_size=args["patch_size"],
+        overlap=args["overlap"],
         enforce_mixed_precision=args["enforce_amp"],
     )
 

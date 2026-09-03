@@ -41,16 +41,43 @@ class InferenceWSIParser:
         group_classifier.add_argument(
             "--binary",
             action="store_true",
-            help="Use this for cell-only detection/segmentation without classifier. Cannot be used together with --classifier_path.",
+            help=(
+                "Use this for cell-only detection/segmentation without classifier. "
+                "Cannot be used together with --classifier_path or --classifier."
+            ),
         )
 
         group_classifier.add_argument(
             "--classifier_path",
             type=str,
-            help="Path to a classifier (.pth) to replace PanNuke classification results with a new scheme. Example classifiers can be found in ./checkpoints/classifiers folder. "
-            "A label map with an overview is provided in each README for the respective classifier. Cannot be used together with --binary.",
+            help=(
+                "Path to a cell classifier checkpoint (.pth or .pt) used to replace "
+                "the default PanNuke classification results. Both legacy linear "
+                "CellViT++ classifiers and graph-based GraphSAGE/GATv2 classifiers "
+                "are supported. The classifier architecture is detected automatically "
+                "from the checkpoint. Cannot be used together with --binary."
+            ),
             default=None,
         )
+
+        group_classifier.add_argument(
+            "--classifier",
+            type=str,
+            choices=[
+                "mlp",
+                "graphsage",
+                "gatv2",
+            ],
+            help=(
+                "Use an integrated TSN cell classifier. "
+                "'mlp' loads the retrained 5-fold MLP ensemble, "
+                "'graphsage' loads the final 5-fold GraphSAGE ensemble, "
+                "and 'gatv2' loads the final 5-fold GATv2 ensemble. "
+                "Cannot be used together with --binary or --classifier_path."
+            ),
+            default=None,
+        )
+
         parser.add_argument(
             "--gpu", type=int, help="Cuda-GPU ID for inference. Default: 0", default=0
         )
@@ -73,6 +100,26 @@ class InferenceWSIParser:
             type=int,
             help="Inference batch-size. Default: 8",
             default=8,
+        )
+        parser.add_argument(
+            "--patch_size",
+            type=int,
+            choices=[256, 1024],
+            default=1024,
+            help=(
+                "Internal CellViT patch size. Use 256 for independent "
+                "256x256 image patches and 1024 for standard WSI inference."
+            ),
+        )
+        parser.add_argument(
+            "--overlap",
+            type=int,
+            default=64,
+            help=(
+                "Overlap between internal CellViT patches in pixels. "
+                "Use 0 for independent 256x256 patches and 64 for "
+                "standard WSI inference."
+            ),
         )
         parser.add_argument(
             "--outdir",
@@ -179,6 +226,31 @@ class InferenceWSIParser:
                 )
         assert type(opt["batch_size"]) == int, "Batch size must be an integer"
         assert 1 < opt["batch_size"] < 128, "Batch size must be between 2 and 128"
+
+
+        assert isinstance(
+            opt["patch_size"],
+            int,
+        ), "Patch size must be an integer"
+
+        assert opt["patch_size"] in [
+            256,
+            1024,
+        ], "Patch size must be either 256 or 1024"
+
+        assert isinstance(
+            opt["overlap"],
+            int,
+        ), "Overlap must be an integer"
+
+        assert (
+            0 <= opt["overlap"] < opt["patch_size"]
+        ), "Overlap must be non-negative and smaller than patch size"
+
+        if opt["patch_size"] == 256:
+            assert (
+                opt["overlap"] == 0
+            ), "Patch size 256 must be used with overlap 0"
 
         if "wsi_properties" in opt:
             if opt["wsi_properties"] is not None:

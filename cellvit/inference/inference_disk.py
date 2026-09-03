@@ -49,6 +49,10 @@ from cellvit.models.cell_segmentation.cellvit_uni import CellViTUNI
 from cellvit.utils.logger import Logger
 from cellvit.utils.tools import unflatten_dict
 from cellvit.models.classifier.linear_classifier import LinearClassifier
+from cell_graph.inference.graph_classifier import GraphCellClassifier
+from cell_graph.inference.mlp_ensemble_classifier import (
+    MLPEnsembleClassifier,
+)
 
 # get the project root:
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -138,6 +142,7 @@ class CellViTInference:
         model_path: Union[Path, str],
         gpu: int,
         classifier_path: Union[Path, str] = None,
+        classifier: str = None,
         binary: bool = False,
         batch_size: int = 8,
         patch_size: int = 1024,
@@ -148,9 +153,17 @@ class CellViTInference:
         subdir_name: str = None,
         enforce_mixed_precision: bool = False,
     ) -> None:
-        if classifier_path is not None and binary is True:
+        if classifier_path is not None and classifier is not None:
             raise RuntimeError(
-                "Either --binary must be specified for cell-only detection/segmentation, or --classifier_path must be provided for classification. Both cannot be used simultaneously."
+                "Use either --classifier_path or --classifier, not both."
+            )
+
+        if binary and (
+            classifier_path is not None
+            or classifier is not None
+        ):
+            raise RuntimeError(
+                "--binary cannot be combined with a cell classifier."
             )
         self.logger: Logger
         self.model: nn.Module
@@ -160,6 +173,13 @@ class CellViTInference:
         self.num_workers: int
         self.label_map: dict = TYPE_NUCLEI_DICT_PANNUKE
         self.classifier: nn.Module = None
+
+        self.graph_classifier_path = None
+        self.graph_classifier_paths = None
+
+        self.mlp_classifier_path = None
+        self.mlp_classifier_paths = None
+
         self.binary: bool = binary
         self.model_arch: str
         self.num_workers: int
@@ -179,6 +199,11 @@ class CellViTInference:
         self._instantiate_logger()
         self._load_model()
         self._check_devices(gpu)
+        if classifier is not None:
+            classifier_path = self._resolve_integrated_classifier(
+                classifier
+            )
+
         self._load_classifier(classifier_path)
         self._load_inference_transforms()
         self._setup_amp(enforce_mixed_precision=enforce_mixed_precision)
@@ -260,33 +285,474 @@ class CellViTInference:
             self.batch_size = max_batch_size
             self.logger.info(f"Apply limits - Batch size: {self.batch_size}")
 
-    def _load_classifier(self, classifier_path: Union[Path, str] = None) -> None:
-        """Load the classifier if provided
-
-        Args:
-            classifier_path (Union[Path, str], optional): Path to classifier. Defaults to None.
+    def _resolve_integrated_classifier(
+        self,
+        classifier: str,
+    ):
         """
+        Resolve a built-in cell classifier to its five
+        cross-validation checkpoints.
+
+        Supported integrated classifiers:
+        - GATv2
+        - GraphSAGE
+        - retrained TSN MLP
+        """
+
+        classifier = classifier.strip().lower()
+
+        repository_root = Path(__file__).resolve().parents[2]
+
+        classifier_root = (
+            repository_root
+            / "checkpoints"
+            / "cell_classifiers"
+        )
+
+        integrated_classifiers = {
+            "gatv2": {
+                "path": (
+                    classifier_root
+                    / "gatv2_context1024_k6"
+                ),
+                "extension": ".pt",
+            },
+
+            "graphsage": {
+                "path": (
+                    classifier_root
+                    / "graphsage_context1024_k8"
+                ),
+                "extension": ".pt",
+            },
+
+            "mlp": {
+                "path": (
+                    classifier_root
+                    / "mlp_tsn"
+                ),
+                "extension": ".pth",
+            },
+        }
+
+        if classifier not in integrated_classifiers:
+            raise ValueError(
+                "Unknown integrated classifier "
+                f"'{classifier}'. Supported classifiers: "
+                f"{sorted(integrated_classifiers)}"
+            )
+
+        classifier_conf = integrated_classifiers[
+            classifier
+        ]
+
+        model_dir = classifier_conf["path"]
+        extension = classifier_conf["extension"]
+
+        checkpoint_paths = [
+            model_dir / f"fold_{fold}{extension}"
+            for fold in range(5)
+        ]
+
+        missing = [
+            path
+            for path in checkpoint_paths
+            if not path.exists()
+        ]
+
+        if missing:
+            raise FileNotFoundError(
+                "Missing checkpoints for integrated "
+                f"classifier '{classifier}':\n"
+                + "\n".join(
+                    str(path)
+                    for path in missing
+                )
+            )
+
+        self.logger.info(
+            f"Using integrated classifier: {classifier}"
+        )
+
+        self.logger.info(
+            "Using 5-fold soft-voting ensemble"
+        )
+
+        return checkpoint_paths
+
+    def _load_classifier(
+        self,
+        classifier_path=None,
+    ) -> None:
+        """
+        Load an optional downstream cell classifier.
+
+        Supported classifier families
+        -----------------------------
+        1. CellViT++ legacy linear classifiers
+        2. Graph-based classifiers developed in this project:
+        - GraphSAGE
+        - GATv2
+
+        The classifier type is inferred from the checkpoint configuration.
+        """
+
         if classifier_path is None:
             self.classifier = None
-        else:
-            model_checkpoint = torch.load(classifier_path, map_location="cpu")
-            run_conf = unflatten_dict(model_checkpoint["config"], ".")
+            return
 
-            model = LinearClassifier(
-                embed_dim=model_checkpoint["model_state_dict"]["fc1.weight"].shape[1],
-                hidden_dim=run_conf["model"].get("hidden_dim", 100),
-                num_classes=run_conf["data"]["num_classes"],
-                drop_rate=0,
+        # ----------------------------------------------------------
+        # Integrated classifier ensemble
+        # ----------------------------------------------------------
+
+        if isinstance(
+            classifier_path,
+            (list, tuple),
+        ):
+            checkpoint_paths = [
+                Path(path)
+                for path in classifier_path
+            ]
+
+            if len(checkpoint_paths) == 0:
+                raise ValueError(
+                    "Integrated classifier checkpoint list is empty."
+                )
+
+            # ------------------------------------------------------
+            # Determine classifier family from first checkpoint
+            # ------------------------------------------------------
+
+            first_checkpoint = torch.load(
+                checkpoint_paths[0],
+                map_location="cpu",
             )
-            self.logger.info("Using customized classifier")
+
+            config = first_checkpoint.get(
+                "config",
+                {}
+            )
+
+            architecture = None
+
+            if isinstance(config, dict):
+
+                model_config = config.get(
+                    "model",
+                    {}
+                )
+
+                if isinstance(
+                    model_config,
+                    dict,
+                ):
+                    architecture = model_config.get(
+                        "architecture"
+                    )
+
+            architecture_normalized = (
+                str(architecture).strip().lower()
+                if architecture is not None
+                else None
+            )
+
+            graph_architectures = {
+                "graphsage",
+                "gatv2",
+            }
+
+            # ------------------------------------------------------
+            # Graph ensemble
+            # ------------------------------------------------------
+
+            if architecture_normalized in graph_architectures:
+
+                model = GraphCellClassifier(
+                    checkpoint_paths=checkpoint_paths,
+                    device="cpu",
+                )
+
+                self.logger.info(
+                    "Using graph-based cell classifier ensemble"
+                )
+
+                for key, value in model.summary().items():
+                    self.logger.info(
+                        f"  {key}: {value}"
+                    )
+
+                if model.num_classes != 3:
+                    raise RuntimeError(
+                        "The integrated graph classifier expects "
+                        f"3 TSN classes, but found "
+                        f"{model.num_classes}."
+                    )
+
+                self.label_map = {
+                    0: "Tumor",
+                    1: "Stroma",
+                    2: "Normal",
+                }
+
+                self.classifier = model
+
+                self.graph_classifier_paths = [
+                    str(path)
+                    for path in checkpoint_paths
+                ]
+
+                return
+
+            # ------------------------------------------------------
+            # MLP TSN ensemble
+            # ------------------------------------------------------
+
+            model = MLPEnsembleClassifier(
+                checkpoint_paths=checkpoint_paths,
+                device="cpu",
+            )
+
             self.logger.info(
-                model.load_state_dict(model_checkpoint["model_state_dict"])
+                "Using MLP TSN cell classifier ensemble"
             )
-            model = model  # .to(self.device)
-            model.eval()
-            self.label_map = run_conf["data"]["label_map"]
-            self.label_map = {int(k): v for k, v in self.label_map.items()}
+
+            for key, value in model.summary().items():
+                self.logger.info(
+                    f"  {key}: {value}"
+                )
+
+            if model.num_classes != 3:
+                raise RuntimeError(
+                    "The integrated MLP classifier expects "
+                    f"3 TSN classes, but found "
+                    f"{model.num_classes}."
+                )
+
+            self.label_map = {
+                0: "Tumor",
+                1: "Stroma",
+                2: "Normal",
+            }
+
             self.classifier = model
+
+            # Ray reconstructs the ensemble locally.
+            self.mlp_classifier_paths = [
+                str(path)
+                for path in checkpoint_paths
+            ]
+
+            return
+
+        classifier_path = Path(
+            classifier_path
+        )
+
+        if not classifier_path.exists():
+            raise FileNotFoundError(
+                f"Classifier checkpoint not found:\n"
+                f"{classifier_path}"
+            )
+
+        # ----------------------------------------------------------
+        # Read checkpoint once to determine classifier family
+        # ----------------------------------------------------------
+
+        model_checkpoint = torch.load(
+            classifier_path,
+            map_location="cpu",
+        )
+
+        if "model_state_dict" not in model_checkpoint:
+            raise KeyError(
+                "Classifier checkpoint does not contain "
+                "'model_state_dict'."
+            )
+
+        config = model_checkpoint.get(
+            "config",
+            {}
+        )
+
+        # ----------------------------------------------------------
+        # Detect GNN checkpoints
+        # ----------------------------------------------------------
+
+        architecture = None
+
+        if isinstance(
+            config,
+            dict,
+        ):
+
+            model_config = config.get(
+                "model",
+                {}
+            )
+
+            if isinstance(
+                model_config,
+                dict,
+            ):
+
+                architecture = model_config.get(
+                    "architecture"
+                )
+
+        architecture_normalized = (
+            str(
+                architecture
+            )
+            .strip()
+            .lower()
+            if architecture is not None
+            else None
+        )
+
+        graph_architectures = {
+            "graphsage",
+            "gatv2",
+        }
+
+        # ----------------------------------------------------------
+        # Graph-based classifier
+        # ----------------------------------------------------------
+
+        if architecture_normalized in graph_architectures:
+
+            self.logger.info(
+                "Using graph-based cell classifier"
+            )
+
+            self.logger.info(
+                f"Architecture: {architecture}"
+            )
+
+            model = GraphCellClassifier(
+                checkpoint_path=
+                    classifier_path,
+
+                # IMPORTANT:
+                # The classifier is executed inside Ray postprocessing
+                # workers in the current inference pipeline, so keep it
+                # on CPU for now.
+                device=
+                    "cpu",
+            )
+
+            classifier_summary = (
+                model.summary()
+            )
+
+            for key, value in (
+                classifier_summary.items()
+            ):
+
+                self.logger.info(
+                    f"  {key}: {value}"
+                )
+
+            # ------------------------------------------------------
+            # TSN label map
+            # ------------------------------------------------------
+
+            if model.num_classes != 3:
+
+                raise RuntimeError(
+                    "The integrated graph classifier currently expects "
+                    f"3 TSN classes, but checkpoint contains "
+                    f"{model.num_classes} classes."
+                )
+
+            self.label_map = {
+                0: "Tumor",
+                1: "Stroma",
+                2: "Normal",
+            }
+
+            self.classifier = model
+
+            self.graph_classifier_path = str(
+                classifier_path
+            )
+
+            return
+
+        # ----------------------------------------------------------
+        # Legacy CellViT++ linear classifier
+        # ----------------------------------------------------------
+
+        self.logger.info(
+            "Using customized linear classifier"
+        )
+
+        run_conf = unflatten_dict(
+            model_checkpoint[
+                "config"
+            ],
+            ".",
+        )
+
+        model = LinearClassifier(
+            embed_dim=
+                model_checkpoint[
+                    "model_state_dict"
+                ][
+                    "fc1.weight"
+                ]
+                .shape[
+                    1
+                ],
+
+            hidden_dim=
+                run_conf[
+                    "model"
+                ].get(
+                    "hidden_dim",
+                    100,
+                ),
+
+            num_classes=
+                run_conf[
+                    "data"
+                ][
+                    "num_classes"
+                ],
+
+            drop_rate=
+                0,
+        )
+
+        self.logger.info(
+            model.load_state_dict(
+                model_checkpoint[
+                    "model_state_dict"
+                ]
+            )
+        )
+
+        model.eval()
+
+        self.label_map = (
+            run_conf[
+                "data"
+            ][
+                "label_map"
+            ]
+        )
+
+        self.label_map = {
+            int(
+                key
+            ):
+            value
+
+            for key, value in (
+                self.label_map.items()
+            )
+        }
+
+        self.classifier = model
 
     def _get_model(
         self, model_type: Literal["CellViT", "CellViT256", "CellViTSAM", "CellViTUNI"]
@@ -384,7 +850,7 @@ class CellViTInference:
             num_workers = 16
         num_workers = int(np.clip(num_workers, 1, 4 * self.batch_size))
         self.num_workers = num_workers
-        self.ray_actors = int(np.clip(1 / 2 * self.batch_size, 4, 8))
+        self.ray_actors = 1
         self.logger.info(f"Using {self.ray_actors} ray-workers")
 
     def process_wsi(
@@ -420,16 +886,55 @@ class CellViTInference:
             outdir = Path(wsi.patched_slide_path) / "cell_detection"
         outdir.mkdir(exist_ok=True, parents=True)
 
+        is_graph_classifier = (
+            self.classifier is not None
+            and getattr(
+                self.classifier,
+                "is_graph_classifier",
+                False,
+            )
+        )
+
+        is_mlp_ensemble_classifier = (
+            self.classifier is not None
+            and getattr(
+                self.classifier,
+                "is_mlp_ensemble_classifier",
+                False,
+            )
+        )
+
+        is_integrated_classifier = (
+            is_graph_classifier
+            or is_mlp_ensemble_classifier
+        )
+
+        postprocessor_classifier = (
+            None
+            if is_integrated_classifier
+            else self.classifier
+        )
+
+
         # global postprocessor
         postprocessor = DetectionCellPostProcessorCupy(
             wsi=wsi,
             nr_types=self.run_conf["data"]["num_nuclei_classes"],
             resolution=resolution,
+            classifier=postprocessor_classifier,
+            binary=self.binary,
         )
 
         # create ray actors for batch-wise postprocessing
         batch_pooling_actors = [
-            BatchPoolingActor.remote(postprocessor, self.run_conf)
+            BatchPoolingActor.remote(
+                postprocessor,
+                self.run_conf,
+                self.graph_classifier_path,
+                self.graph_classifier_paths,
+                self.mlp_classifier_path,
+                self.mlp_classifier_paths,
+            )
             for i in range(self.ray_actors)
         ]
         call_ids = []
