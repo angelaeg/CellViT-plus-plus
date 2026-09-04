@@ -4,6 +4,10 @@
 # @ Fabian Hörst, fabian.hoerst@uk-essen.de
 # Institute for Artifical Intelligence in Medicine,
 # University Medicine Essen
+#
+# Modified in 2026 by Ángela Esteban for the UPM MSc thesis extension:
+# integrated MLP, GraphSAGE, and GATv2 TSN classification.
+# See NOTICE_TFM.md for modification scope and attribution.
 
 import sys
 import os

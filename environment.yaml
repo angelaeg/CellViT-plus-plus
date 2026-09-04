@@ -1,3 +1,4 @@
+# Modified in 2026 for the UPM MSc thesis extension: added PyTorch Geometric dependency.
 name: cellvit_env
 channels:
   - nvidia

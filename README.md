@@ -17,6 +17,8 @@
 > This fork extends CellViT++ with integrated MLP, GraphSAGE, and GATv2 classifiers for Tumor–Stroma–Normal cellular-instance classification. The graph-based backends dynamically construct spatial cell graphs and support five-fold soft-voting inference. CellViT++ segmentation and feature extraction remain unchanged.
 >
 > See [Context-aware TSN cell classification](docs/graph_classifier_integration.md) for installation requirements, checkpoint organization, inference examples, and limitations.
+>
+> Modification authorship and scope are documented in [NOTICE_TFM.md](NOTICE_TFM.md).
 
 ___
 <p align="center">

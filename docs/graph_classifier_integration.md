@@ -148,4 +148,6 @@ The graph context available during deployment therefore depends on the selected 
 
 ## Attribution and license
 
+Fork-specific modifications and authorship are documented in [NOTICE_TFM.md](../NOTICE_TFM.md).
+
 This repository is derived from CellViT++. The original copyright, license, attribution requirements, and citations remain applicable. See [LICENSE](../LICENSE) and the citation section of the original [README](../README.md).

@@ -1,3 +1,4 @@
+# Modified in 2026 for the UPM MSc thesis extension: added PyTorch Geometric dependency.
 albumentations==1.3.0
 babel==2.14.0
 beautifulsoup4==4.12.3
