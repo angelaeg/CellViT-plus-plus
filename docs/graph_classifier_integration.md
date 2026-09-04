@@ -130,7 +130,9 @@ The options `--binary`, `--classifier`, and `--classifier_path` are mutually exc
 
 ## Outputs
 
-The predicted TSN label and the corresponding three-class probability vector are assigned to each CellViT++ cellular instance. Predictions are propagated through the standard JSON and optional GeoJSON output pipeline.
+The predicted TSN label and the corresponding three-class probability vector are assigned to each CellViT++ cellular instance. The detailed `*_cells.json` output retains the TSN label, assigned-class probability, and complete three-class probability vector. The lightweight `*_cell_detection.json` output retains bounding boxes, centroids, and TSN labels. Optional GeoJSON exports contain the TSN class name and its visualization color.
+
+The GeoJSON TSN palette is Tumor `[200, 0, 0]`, Stroma `[150, 200, 150]`, and Normal `[0, 174, 239]`.
 
 The class order used by the integrated TSN classifiers is:
 

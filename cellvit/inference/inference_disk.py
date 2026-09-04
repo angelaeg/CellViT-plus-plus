@@ -38,6 +38,7 @@ import torch.nn.functional as F
 import ujson
 
 from cellvit.config.config import COLOR_DICT_CELLS, TYPE_NUCLEI_DICT_PANNUKE
+
 from cellvit.config.templates import get_template_point, get_template_segmentation
 from cellvit.data.dataclass.cell_graph import CellGraphDataWSI
 from cellvit.data.dataclass.wsi import WSI, PatchedWSIInference
@@ -57,6 +58,12 @@ from cell_graph.inference.graph_classifier import GraphCellClassifier
 from cell_graph.inference.mlp_ensemble_classifier import (
     MLPEnsembleClassifier,
 )
+
+TSN_COLOR_DICT = {
+    "Tumor": [200, 0, 0],
+    "Stroma": [150, 200, 150],
+    "Normal": [0, 174, 239],
+}
 
 # get the project root:
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -1151,6 +1158,13 @@ class CellViTInference:
             ]
         return cell_dict_wsi, cell_dict_detection
 
+    def _get_cell_color(self, cell_type: int) -> list[int]:
+        """Return TSN colors while preserving CellViT++ defaults for other taxonomies."""
+        label = self.label_map[cell_type]
+        if label in TSN_COLOR_DICT:
+            return TSN_COLOR_DICT[label]
+        return COLOR_DICT_CELLS[cell_type]
+
     def _convert_json_geojson(
         self, cell_list: list[dict], polygons: bool = False
     ) -> List[dict]:
@@ -1191,7 +1205,7 @@ class CellViTInference:
                 ] = self.label_map[cell_type]
                 cell_geojson_object["properties"]["classification"][
                     "color"
-                ] = COLOR_DICT_CELLS[cell_type]
+                ] = self._get_cell_color(cell_type)
                 geojson_placeholder.append(cell_geojson_object)
         else:
             cell_detection_df = pd.DataFrame(cell_list)
@@ -1208,7 +1222,7 @@ class CellViTInference:
                 ] = self.label_map[cell_type]
                 cell_geojson_object["properties"]["classification"][
                     "color"
-                ] = COLOR_DICT_CELLS[cell_type]
+                ] = self._get_cell_color(cell_type)
                 geojson_placeholder.append(cell_geojson_object)
         return geojson_placeholder
 

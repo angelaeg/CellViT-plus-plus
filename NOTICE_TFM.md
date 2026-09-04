@@ -13,7 +13,7 @@ The principal additions are:
 - Five-fold soft-voting inference for the three classifiers.
 - Automatic recovery of architecture and graph parameters from compatible checkpoints.
 - Selection of the integrated classifier through the CellViT++ command-line interface.
-- Propagation of TSN labels and class probabilities through the standard JSON and GeoJSON outputs.
+- Propagation of TSN labels through the standard JSON and GeoJSON outputs, with class-probability vectors retained in the detailed cellular JSON output.
 - Exposure of the internal CellViT++ patch size and overlap as command-line options for integrated inference.
 - Documentation and dependency updates required by the graph-based classifiers.
 
