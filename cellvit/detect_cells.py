@@ -2,7 +2,7 @@
 # CellViT Inference Pipeline for Whole Slide Images (WSI) in Memory
 #
 # @ Fabian Hörst, fabian.hoerst@uk-essen.de
-# Institute for Artifical Intelligence in Medicine,
+# Institute for Artificial Intelligence in Medicine,
 # University Medicine Essen
 #
 # Modified in 2026 by Ángela Esteban for the UPM MSc thesis extension:

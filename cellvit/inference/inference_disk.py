@@ -2,13 +2,13 @@
 # CellViT Inference Method for Patch-Wise Inference on a patches test set/Whole WSI
 #
 # Detect Cells with our Networks
-# Patches dataset needs to have the follwoing requirements:
+# Patches dataset needs to have the following requirements:
 # Patch-Size must be 1024, with overlap of 64
 #
 # We provide preprocessing code here: ./preprocessing/patch_extraction/main_extraction.py
 #
 # @ Fabian Hörst, fabian.hoerst@uk-essen.de
-# Institute for Artifical Intelligence in Medicine,
+# Institute for Artificial Intelligence in Medicine,
 # University Medicine Essen
 #
 # Modified in 2026 by Ángela Esteban for the UPM MSc thesis extension:

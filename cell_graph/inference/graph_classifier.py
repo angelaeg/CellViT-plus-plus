@@ -228,7 +228,7 @@ class GraphCellClassifier:
                 model
             )
 
-        # Backwards compatibility for code expecting self.model.
+        # Backward compatibility for code expecting self.model.
         self.model = self.models[0]
 
     # ==========================================================

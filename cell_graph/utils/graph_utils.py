@@ -10,10 +10,10 @@ CellViT cell centroids.
 Current baseline topology
 -------------------------
 - One cell = one node
-- Thresholded k-nearest-neighbour graph
+- Thresholded k-nearest-neighbor graph
 - Undirected biological graph
 - Both edge directions stored for PyTorch Geometric message passing
-- Edge attribute = Euclidean cell-to-cell distance in micrometres
+- Edge attribute = Euclidean cell-to-cell distance in micrometers
 """
 
 import numpy as np
@@ -28,10 +28,10 @@ def build_thresholded_knn(
     mpp: float,
 ):
     """
-    Build an undirected thresholded k-nearest-neighbour graph.
+    Build an undirected thresholded k-nearest-neighbor graph.
 
     Two cells are connected if:
-        1. One cell is among the k nearest neighbours of the other.
+        1. One cell is among the k nearest neighbors of the other.
         2. Their Euclidean distance is <= radius_um.
 
     Both directions of every accepted edge are stored in ``edge_index``
@@ -43,13 +43,13 @@ def build_thresholded_knn(
         Cell centroid coordinates with shape [N, 2], in pixels.
 
     k : int
-        Maximum number of nearest neighbours considered per node.
+        Maximum number of nearest neighbors considered per node.
 
     radius_um : float
-        Maximum allowed cell-to-cell distance in micrometres.
+        Maximum allowed cell-to-cell distance in micrometers.
 
     mpp : float
-        Micrometres per pixel of the input patch.
+        Micrometers per pixel of the input patch.
 
     Returns
     -------
@@ -57,7 +57,7 @@ def build_thresholded_knn(
         Graph connectivity with shape [2, E].
 
     edge_attr : torch.Tensor
-        Edge distances in micrometres with shape [E, 1].
+        Edge distances in micrometers with shape [E, 1].
     """
 
     # ----------------------------------------------------------

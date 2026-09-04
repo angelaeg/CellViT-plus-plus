@@ -5,7 +5,7 @@
 GATv2 models for cell-level classification.
 
 This classifier operates on frozen CellViT cell embeddings and uses
-explicit spatial neighbourhood information through GATv2 attention-based
+explicit spatial neighborhood information through GATv2 attention-based
 message passing.
 
 Architecture

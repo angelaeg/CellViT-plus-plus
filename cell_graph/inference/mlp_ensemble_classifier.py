@@ -207,7 +207,7 @@ class MLPEnsembleClassifier:
                 model
             )
 
-        # Backwards compatibility / convenience.
+        # Backward compatibility / convenience.
         self.model = self.models[0]
 
     # ==========================================================

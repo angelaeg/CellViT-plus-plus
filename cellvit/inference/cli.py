@@ -2,7 +2,7 @@
 # CLI for CellViT inference
 #
 # @ Fabian Hörst, fabian.hoerst@uk-essen.de
-# Institute for Artifical Intelligence in Medicine,
+# Institute for Artificial Intelligence in Medicine,
 # University Medicine Essen
 #
 # Modified in 2026 by Ángela Esteban for the UPM MSc thesis extension:
@@ -83,26 +83,26 @@ class InferenceWSIParser:
         )
 
         parser.add_argument(
-            "--gpu", type=int, help="Cuda-GPU ID for inference. Default: 0", default=0
+            "--gpu", type=int, help="CUDA GPU ID for inference.", default=0
         )
         parser.add_argument(
             "--resolution",
             type=float,
             choices=[0.25, 0.5],
-            help="Network resolution un MPP. Is used for checking patch resolution such that we use the correct resolution for network."
-            "We strongly recommend to use 0.25, 0.50 is deprecated and will be removed in subsequent versions. Default: 0.25",
+            help="Network resolution in micrometers per pixel (MPP). Used to ensure that input patches are processed at the resolution expected by the network. "
+            "We strongly recommend using 0.25; 0.50 is deprecated and will be removed in subsequent versions.",
             default=0.25,
         )
         parser.add_argument(
             "--enforce_amp",
             action="store_true",
             help="Whether to use mixed precision for inference (enforced). Otherwise network default training settings are used."
-            " Default: False",
+            "",
         )
         parser.add_argument(
             "--batch_size",
             type=int,
-            help="Inference batch-size. Default: 8",
+            help="Inference batch size.",
             default=8,
         )
         parser.add_argument(
@@ -134,12 +134,12 @@ class InferenceWSIParser:
         parser.add_argument(
             "--geojson",
             action="store_true",
-            help="Set this flag to export results as additional geojson files for loading them into Software like QuPath.",
+            help="Set this flag to export results as additional GeoJSON files for loading into software such as QuPath.",
         )
         parser.add_argument(
             "--graph",
             action="store_true",
-            help="Set this flag to export results as pytorch graph including embeddings (.pt) file.",
+            help="Set this flag to export results as a PyTorch graph containing embeddings (.pt).",
         )
         parser.add_argument(
             "--compression",
@@ -148,7 +148,7 @@ class InferenceWSIParser:
         )
         subparsers = parser.add_subparsers(
             dest="command",
-            description="Main run command for either performing inference on single WSI-file or on whole dataset",
+            description="Run inference on either a single WSI file or an entire dataset",
         )
         subparser_wsi = subparsers.add_parser(
             "process_wsi", description="Process a single WSI file"
@@ -318,25 +318,25 @@ class InferenceWSIParserDisk:
             required=True,
         )
         parser.add_argument(
-            "--gpu", type=int, help="Cuda-GPU ID for inference. Default: 0", default=0
+            "--gpu", type=int, help="CUDA GPU ID for inference.", default=0
         )
         parser.add_argument(
             "--resolution",
             type=float,
             choices=[0.25, 0.5],
-            help="Network resolution un MPP. Is used for checking patch resolution such that we use the correct resolution for network. Default: 0.25",
+            help="Network resolution in micrometers per pixel (MPP). Used to ensure that input patches are processed at the resolution expected by the network.",
             default=0.25,
         )
         parser.add_argument(
             "--enforce_amp",
             action="store_true",
             help="Whether to use mixed precision for inference (enforced). Otherwise network default training settings are used."
-            " Default: False",
+            "",
         )
         parser.add_argument(
             "--batch_size",
             type=int,
-            help="Inference batch-size. Default: 8",
+            help="Inference batch size.",
             default=8,
         )
         parser.add_argument(
@@ -348,7 +348,7 @@ class InferenceWSIParserDisk:
         parser.add_argument(
             "--geojson",
             action="store_true",
-            help="Set this flag to export results as additional geojson files for loading them into Software like QuPath.",
+            help="Set this flag to export results as additional GeoJSON files for loading into software such as QuPath.",
         )
 
         # subparsers for either loading a WSI or a WSI folder
@@ -356,7 +356,7 @@ class InferenceWSIParserDisk:
         # WSI
         subparsers = parser.add_subparsers(
             dest="command",
-            description="Main run command for either performing inference on single WSI-file or on whole dataset",
+            description="Run inference on either a single WSI file or an entire dataset",
         )
         subparser_wsi = subparsers.add_parser(
             "process_wsi", description="Process a single WSI file"

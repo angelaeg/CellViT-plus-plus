@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-# Postprocessing of cellvit networkm output, tailored for the inference pipeline
+# Postprocessing of CellViT network output, tailored for the inference pipeline
 #
 # @ Fabian Hörst, fabian.hoerst@uk-essen.de
-# Institute for Artifical Intelligence in Medicine,
+# Institute for Artificial Intelligence in Medicine,
 # University Medicine Essen
 #
 # Modified in 2026 by Ángela Esteban for the UPM MSc thesis extension:
@@ -707,10 +707,10 @@ class BatchPoolingActor:
         Postprocess a batch of CellViT predictions and convert detected
         nuclei into graph nodes.
 
-        Classification behaviour
+        Classification behavior
         ------------------------
         - Legacy CellViT++ classifiers:
-            preserve the original independent-cell classification behaviour.
+            preserve the original independent-cell classification behavior.
 
         - Graph classifiers:
             classify each patch independently. For every patch, the detected
@@ -899,7 +899,7 @@ class BatchPoolingActor:
         # ----------------------------------------------------------
         # Legacy independent-cell classifier
         #
-        # Preserve the original CellViT++ behaviour:
+        # Preserve the original CellViT++ behavior:
         # all cell embeddings in the batch are classified together.
         # ----------------------------------------------------------
 

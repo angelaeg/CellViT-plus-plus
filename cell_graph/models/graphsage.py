@@ -5,21 +5,21 @@
 GraphSAGE models for cell-level classification.
 
 The baseline classifier operates on frozen CellViT cell embeddings and
-uses explicit spatial neighbourhood information through GraphSAGE message
+uses explicit spatial neighborhood information through GraphSAGE message
 passing.
 
 Current baseline architecture
 -----------------------------
 CellViT embedding (1280-D)
-    -> Linear projection (1280 -> 256)
+    -> Linear projection (1280 -> hidden_dim)
     -> ReLU
-    -> SAGEConv (256 -> 256)
-    -> ReLU
-    -> Dropout
-    -> SAGEConv (256 -> 256)
+    -> SAGEConv (hidden_dim -> hidden_dim)
     -> ReLU
     -> Dropout
-    -> Linear classifier (256 -> num_classes)
+    -> SAGEConv (hidden_dim -> hidden_dim)
+    -> ReLU
+    -> Dropout
+    -> Linear classifier (hidden_dim -> num_classes)
 
 The model performs node-level classification and therefore returns one
 logit vector per cell.
@@ -40,13 +40,13 @@ class GraphSAGEClassifier(nn.Module):
     input_dim : int, default=1280
         Dimensionality of the CellViT cell embedding.
 
-    hidden_dim : int, default=256
+    hidden_dim : int, default=128
         Hidden dimensionality used by the projection and GraphSAGE layers.
 
     num_classes : int, default=3
         Number of output cell classes.
 
-    dropout : float, default=0.2
+    dropout : float, default=0.4
         Dropout probability applied after each GraphSAGE layer.
 
     Notes
