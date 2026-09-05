@@ -46,7 +46,7 @@ The following files were added for the TSN classification extension:
 
 The repository does not contain patient data, cached cellular embeddings, graph indices, experimental outputs, or other derived clinical data.
 
-Classifier checkpoints are not included unless their public distribution is separately authorized. The pretrained CellViT++ segmentation checkpoints must be obtained from the sources indicated by the original project.
+Classifier checkpoints are not included in this repository. The pretrained CellViT++ segmentation checkpoints must be obtained from the sources indicated by the original project.
 
 ## License and attribution
 
